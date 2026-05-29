@@ -1,0 +1,461 @@
+{% extends 'base.html' %}
+{% block title %}Pannello di Controllo — SpaceMoon{% endblock %}
+
+{% block head %}
+<style>
+.team-card { transition: border-color .3s, box-shadow .3s; }
+.team-card.launched { border-color: #ffc107 !important; }
+.phase-dot { width:22px; height:22px; border-radius:50%; border:2px solid #444; display:inline-block; }
+.phase-dot.active { border-color:#ffc107; background:#ffc107; }
+.phase-dot.done { background:#198754; border-color:#198754; }
+.answer-row.correct { background:rgba(25,135,84,.15); }
+.answer-row.incorrect { background:rgba(220,53,69,.08); }
+#timerBar { transition: width .9s linear; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+  <!-- Header -->
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h4 class="text-warning mb-0"><i class="bi bi-joystick me-2"></i>Pannello di Controllo</h4>
+      <small class="text-secondary">Sessione #{{ session.id }} &bull;
+        <span id="stateLabel" class="text-info">{{ session.state | upper }}</span>
+      </small>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('dashboard.lim') }}" class="btn btn-sm btn-outline-info" target="_blank">
+        <i class="bi bi-display me-1"></i>Apri LIM
+      </a>
+      <a href="{{ url_for('admin.session_settings', session_id=session.id) }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-sliders"></i>
+      </a>
+    </div>
+  </div>
+
+  <div class="row g-3">
+
+    <!-- LEFT: Game controls -->
+    <div class="col-lg-4">
+
+      <!-- Start game -->
+      {% if session.state == 'setup' %}
+      <div class="card bg-dark border-warning mb-3">
+        <div class="card-body text-center py-4">
+          <div style="font-size:3rem">🚀</div>
+          <p class="text-secondary mb-3">
+            {{ session.teams | length }} squadre &bull; {{ players | length }} giocatori &bull; {{ questions_count }} domande
+          </p>
+          {% if session.teams | length >= 2 and questions_count > 0 and players | length > 0 %}
+          <form method="POST" action="{{ url_for('admin.start_game', session_id=session.id) }}">
+            <button class="btn btn-warning btn-lg w-100 fw-bold">
+              <i class="bi bi-rocket-takeoff me-2"></i>AVVIA GIOCO (Fase A)
+            </button>
+          </form>
+          {% else %}
+          <div class="alert alert-danger small">
+            Servono: ≥2 squadre, ≥1 giocatore, ≥1 domanda.
+          </div>
+          <div class="d-flex gap-2 flex-wrap justify-content-center">
+            <a href="{{ url_for('admin.manage_teams', session_id=session.id) }}" class="btn btn-sm btn-outline-info">Squadre</a>
+            <a href="{{ url_for('admin.manage_users', session_id=session.id) }}" class="btn btn-sm btn-outline-info">Utenti</a>
+            <a href="{{ url_for('admin.manage_questions', session_id=session.id) }}" class="btn btn-sm btn-outline-info">Domande</a>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Round control -->
+      {% if session.state in ('phase_a', 'phase_b', 'apollo_soyuz') %}
+      <div class="card bg-dark border-secondary mb-3">
+        <div class="card-header border-secondary">
+          <h6 class="mb-0 text-warning">
+            <i class="bi bi-stopwatch me-1"></i>Controllo Round
+            <span class="badge bg-secondary ms-2">Round {{ session.current_round }}</span>
+            {% if session.state == 'apollo_soyuz' %}
+            <span class="badge bg-warning text-dark ms-1">Apollo-Soyuz</span>
+            {% endif %}
+          </h6>
+        </div>
+        <div class="card-body">
+          <!-- Timer bar -->
+          <div id="timerSection" class="{{ '' if session.round_active else 'd-none' }} mb-3">
+            <div class="d-flex justify-content-between small mb-1">
+              <span class="text-secondary">Tempo rimanente</span>
+              <span id="timerText" class="fw-bold text-warning">--</span>
+            </div>
+            <div class="progress" style="height:10px">
+              <div id="timerBar" class="progress-bar bg-warning" style="width:100%"></div>
+            </div>
+            <div class="mt-2 text-center small text-secondary">
+              Risposte: <span id="answeredCount" class="text-light fw-bold">0</span> / <span id="totalPlayers">{{ players | length }}</span>
+            </div>
+          </div>
+
+          <div class="d-grid gap-2">
+            {% if not session.round_active %}
+            <form method="POST" action="{{ url_for('admin.start_round', session_id=session.id) }}">
+              <button class="btn btn-success w-100">
+                <i class="bi bi-play-fill me-2"></i>Avvia Round {{ session.current_round + 1 }}
+              </button>
+            </form>
+            {% else %}
+            <form method="POST" action="{{ url_for('admin.end_round', session_id=session.id) }}"
+                  onsubmit="return confirm('Terminare il round anticipatamente?')">
+              <button class="btn btn-danger w-100">
+                <i class="bi bi-stop-fill me-2"></i>Termina Round
+              </button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Answer tracker -->
+      {% if session.round_active %}
+      <div class="card bg-dark border-secondary mb-3">
+        <div class="card-header border-secondary small text-secondary">Risposte in tempo reale</div>
+        <div class="card-body p-0" style="max-height:220px;overflow-y:auto">
+          <table class="table table-dark table-sm mb-0" id="answersTable">
+            <thead><tr><th>Nome</th><th>Squadra</th><th>Pts</th></tr></thead>
+            <tbody id="answersBody"></tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Apollo-Soyuz -->
+      {% if session.state == 'apollo_soyuz' %}
+      <div class="card bg-dark border-warning mb-3">
+        <div class="card-header border-warning bg-warning bg-opacity-10">
+          <h6 class="mb-0 text-warning">🤝 Missione Apollo-Soyuz</h6>
+        </div>
+        <div class="card-body">
+          <div class="mb-2 text-center">
+            <span class="fs-4 fw-bold text-warning" id="apolloPoints">{{ session.apollo_soyuz_points }}</span>
+            <span class="text-secondary"> / {{ session.apollo_soyuz_target }}</span>
+          </div>
+          <div class="progress mb-3" style="height:12px">
+            <div class="progress-bar bg-warning" id="apolloBar"
+                 style="width:{{ [session.apollo_soyuz_points * 100 // session.apollo_soyuz_target, 100] | min }}%"></div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+      {% endif %}
+
+      <!-- Quick links -->
+      <div class="d-flex gap-2 flex-wrap">
+        <a href="{{ url_for('admin.manage_questions', session_id=session.id) }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-question-circle me-1"></i>Domande
+        </a>
+        <a href="{{ url_for('admin.manage_users', session_id=session.id) }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-people me-1"></i>Utenti
+        </a>
+      </div>
+    </div>
+
+    <!-- CENTER/RIGHT: Teams -->
+    <div class="col-lg-8">
+
+      <!-- Phase A: Saturn V progress -->
+      {% if session.state in ('setup', 'phase_a') %}
+      <h6 class="text-secondary mb-2"><i class="bi bi-rocket me-1"></i>Fase A — Costruzione Saturn V
+        (obiettivo: {{ session.saturn_v_target }} pt)</h6>
+      {% endif %}
+
+      <div class="row g-3" id="teamsGrid">
+        {% for team in session.teams %}
+        <div class="col-md-6">
+          <div class="card bg-dark team-card {{ 'launched' if team.launched else 'border-secondary' }}"
+               id="teamCard_{{ team.id }}" style="border-color:{{ team.color }}40 !important">
+            <div class="card-header border-0" style="background:{{ team.color }}20">
+              <div class="d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                  <span style="font-size:1.6rem">{{ team.flag }}</span>
+                  <div>
+                    <div class="fw-bold text-light">{{ team.name }}</div>
+                    <small class="text-secondary">{{ team.member_count }} membri</small>
+                  </div>
+                </div>
+                <div class="text-end">
+                  <div class="fs-5 fw-bold" style="color:{{ team.color }}" id="teamPts_{{ team.id }}">
+                    {{ team.total_points }}
+                  </div>
+                  <small class="text-secondary">punti</small>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-body pt-2 pb-3">
+              {% if not team.launched %}
+              <!-- Phase A: Saturn V progress -->
+              <div class="mb-2">
+                <div class="d-flex justify-content-between small mb-1">
+                  <span class="text-secondary">Saturn V</span>
+                  <span class="text-warning">{{ team.saturn_progress }}%</span>
+                </div>
+                <div class="progress" style="height:8px">
+                  <div class="progress-bar" style="width:{{ team.saturn_progress }}%;background:{{ team.color }}">
+                  </div>
+                </div>
+              </div>
+
+              {% if team.can_launch and session.state != 'setup' %}
+              <form method="POST" action="{{ url_for('admin.launch_team', session_id=session.id, team_id=team.id) }}">
+                <button class="btn btn-warning w-100 btn-sm fw-bold">
+                  🚀 LANCIO!
+                </button>
+              </form>
+              {% elif team.alliance_id %}
+              <div class="badge bg-secondary w-100 text-center py-2">
+                <i class="bi bi-link me-1"></i>In Alleanza #{{ team.alliance_id }}
+              </div>
+              {% endif %}
+
+              {% else %}
+              <!-- Phase B: Mission phases -->
+              <div class="mb-2">
+                <div class="d-flex justify-content-between small mb-1">
+                  <span class="text-secondary">Missione</span>
+                  <span class="text-info">Fase {{ team.phase }}/5</span>
+                </div>
+                <div class="d-flex gap-1 mb-2">
+                  {% for p in mission_phases %}
+                  <div class="phase-dot {{ 'done' if team.phase > p.phase else ('active' if team.phase == p.phase else '') }}"
+                       title="{{ p.name }}">
+                  </div>
+                  {% endfor %}
+                </div>
+                {% if team.phase < 5 %}
+                <div class="d-flex justify-content-between small mb-1">
+                  <span class="text-secondary">Progresso fase</span>
+                  <span>{{ team.current_phase_points }} / {{ session.level_threshold }}</span>
+                </div>
+                <div class="progress mb-2" style="height:6px">
+                  <div class="progress-bar bg-info"
+                       style="width:{{ [team.current_phase_points * 100 // session.level_threshold, 100] | min }}%">
+                  </div>
+                </div>
+                <form method="POST" action="{{ url_for('admin.advance_team_phase', session_id=session.id, team_id=team.id) }}">
+                  <button class="btn btn-outline-info btn-sm w-100">
+                    <i class="bi bi-arrow-up me-1"></i>Avanza fase manualmente
+                  </button>
+                </form>
+                {% else %}
+                <div class="text-center">
+                  <span class="badge bg-success fs-6">🌊 AMMARAGGIO!</span>
+                </div>
+                {% endif %}
+              </div>
+              {% endif %}
+
+              {% if team.members %}
+              <div class="mt-2">
+                {% for m in team.members %}
+                {% if not m.is_superadmin %}
+                <span class="badge bg-dark border border-secondary me-1 mb-1 small">
+                  {{ m.display_name }}
+                  {% if m.role == 'capcom' %}📡
+                  {% elif m.role == 'capo_progetto' %}⭐
+                  {% elif m.role == 'capo_ingegnere' %}⚙️
+                  {% elif m.role == 'direttore_lancio' %}🎯
+                  {% else %}👨‍🚀{% endif %}
+                </span>
+                {% endif %}
+                {% endfor %}
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Alliances -->
+      {% if session.state in ('phase_a', 'phase_b') %}
+      <div class="card bg-dark border-secondary mt-3">
+        <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+          <h6 class="mb-0 text-info"><i class="bi bi-link-45deg me-1"></i>Alleanze Spaziali</h6>
+          <button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#allianceModal">
+            <i class="bi bi-plus me-1"></i>Forma Alleanza
+          </button>
+        </div>
+        <div class="card-body">
+          {% if session.alliances %}
+            {% for a in session.alliances %}
+            <div class="d-flex align-items-center gap-3 mb-2 p-2 rounded border border-secondary">
+              <span class="text-info"><i class="bi bi-link-45deg"></i></span>
+              <div>
+                <div>{% for t in a.teams %}{{ t.flag }} {{ t.name }}{% if not loop.last %} + {% endif %}{% endfor %}</div>
+                <small class="text-secondary">
+                  Pool: {{ a.combined_points }} pt &bull;
+                  Costo avanzamento: {{ a.advance_cost(session.level_threshold) }} pt
+                </small>
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-secondary small text-center py-2">
+              Nessuna alleanza formata. Le squadre in ritardo possono unirsi quando la prima raggiunge la Fase B.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Round results log -->
+      <div class="card bg-dark border-secondary mt-3">
+        <div class="card-header border-secondary">
+          <h6 class="mb-0 text-secondary"><i class="bi bi-clock-history me-1"></i>Log Ultimi Round</h6>
+        </div>
+        <div class="card-body p-0" id="roundLog" style="max-height:200px;overflow-y:auto">
+          <div class="text-secondary small text-center py-3">I risultati dei round appariranno qui.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Alliance Modal -->
+<div class="modal fade" id="allianceModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-info">Forma Alleanza</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('admin.create_alliance', session_id=session.id) }}">
+        <div class="modal-body">
+          <p class="text-secondary small">Seleziona le squadre che formeranno l'alleanza (solo squadre non ancora lanciate):</p>
+          {% for team in session.teams %}
+          {% if not team.launched %}
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="team_ids"
+                   value="{{ team.id }}" id="allyTeam_{{ team.id }}">
+            <label class="form-check-label" for="allyTeam_{{ team.id }}">
+              {{ team.flag }} <strong>{{ team.name }}</strong>
+              <span class="text-secondary small">({{ team.total_points }} pt)</span>
+            </label>
+          </div>
+          {% endif %}
+          {% endfor %}
+          <div class="alert alert-warning bg-warning bg-opacity-10 border-warning mt-3 small">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            Per ogni squadra aggiunta all'alleanza il costo di avanzamento raddoppia!
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-info">Forma Alleanza</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const sessionId = {{ session.id }};
+const roundDuration = {{ session.round_duration }};
+let roundEndTime = {{ (session.round_start_time.timestamp() + session.round_duration) if session.round_active and session.round_start_time else 0 }};
+let timerInterval = null;
+let pollInterval  = null;
+
+const socket = io();
+socket.emit('join', {});
+
+// Timer
+function updateTimer() {
+  const now = Date.now() / 1000;
+  const left = Math.max(0, roundEndTime - now);
+  const pct  = Math.min(100, (left / roundDuration) * 100);
+  const el   = document.getElementById('timerText');
+  const bar  = document.getElementById('timerBar');
+  if (el) el.textContent = Math.ceil(left) + 's';
+  if (bar) {
+    bar.style.width = pct + '%';
+    bar.className = 'progress-bar ' + (left > 20 ? 'bg-success' : left > 10 ? 'bg-warning' : 'bg-danger');
+  }
+  if (left <= 0 && timerInterval) {
+    clearInterval(timerInterval);
+  }
+}
+
+if (roundEndTime > 0) {
+  updateTimer();
+  timerInterval = setInterval(updateTimer, 500);
+}
+
+// Poll answers
+function pollAnswers() {
+  fetch(`/admin/session/${sessionId}/api/round-answers`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('answeredCount').textContent = data.answered;
+      const tbody = document.getElementById('answersBody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      data.answers.forEach(a => {
+        const tr = document.createElement('tr');
+        tr.className = 'answer-row ' + (a.answered ? (a.correct ? 'correct' : 'incorrect') : '');
+        tr.innerHTML = `<td>${a.user}</td><td>${a.team}</td><td>${a.answered ? (a.correct ? '✅ +' + a.points : '❌ 0') : '⏳'}</td>`;
+        tbody.appendChild(tr);
+      });
+    });
+}
+
+const answersSection = document.getElementById('answersBody');
+if (answersSection) {
+  pollAnswers();
+  pollInterval = setInterval(pollAnswers, 2000);
+}
+
+// SocketIO events
+socket.on('round_end', function(data) {
+  if (timerInterval) clearInterval(timerInterval);
+  if (pollInterval)  clearInterval(pollInterval);
+
+  const log = document.getElementById('roundLog');
+  if (log) {
+    const div = document.createElement('div');
+    div.className = 'p-2 border-bottom border-secondary small';
+    let html = `<strong class="text-warning">Round ${data.round}</strong> — `;
+    data.team_results.forEach(tr => {
+      html += `<span>${tr.team_name}: <strong>+${tr.round_pts}</strong></span> `;
+    });
+    if (data.bonuses.length > 0) {
+      html += '<br><span class="text-success">Bonus: ';
+      html += data.bonuses.map(b => `${b.team} ${b.type === 'en_plein' ? '🌟 En Plein' : '⭐ Ruolo'} +${b.pts}`).join(' | ');
+      html += '</span>';
+    }
+    div.innerHTML = html;
+    log.insertBefore(div, log.firstChild);
+  }
+  setTimeout(() => location.reload(), 1500);
+});
+
+socket.on('game_state', function(data) {
+  document.getElementById('stateLabel').textContent = data.state.toUpperCase();
+  data.teams.forEach(t => {
+    const pts = document.getElementById(`teamPts_${t.id}`);
+    if (pts) pts.textContent = t.total_points;
+  });
+  if (data.state === 'apollo_soyuz') {
+    const ap = document.getElementById('apolloPoints');
+    const ab = document.getElementById('apolloBar');
+    if (ap) ap.textContent = data.apollo_soyuz_points;
+    if (ab) ab.style.width = Math.min(100, Math.round(data.apollo_soyuz_points / data.apollo_soyuz_target * 100)) + '%';
+  }
+});
+
+socket.on('player_answered', function(data) {
+  // Refresh answers table
+  if (document.getElementById('answersBody')) pollAnswers();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+{% block title %}Domande — SpaceMoon{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <h2 class="text-warning mb-0"><i class="bi bi-question-circle me-2"></i>Domande ({{ questions | length }})</h2>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#csvModal">
+        <i class="bi bi-file-earmark-arrow-up me-1"></i>Importa CSV
+      </button>
+      <button class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#addModal">
+        <i class="bi bi-plus me-1"></i>Aggiungi
+      </button>
+    </div>
+  </div>
+
+  <!-- CSV Format Info -->
+  <div class="alert alert-secondary border-secondary bg-dark mb-4 small">
+    <strong>Formato CSV:</strong>
+    <code>Domanda, Opzione_1, Opzione_2, Opzione_3, [Opzione_4], [Opzione_5], Risposta_Corretta, [Ruolo_Bonus]</code><br>
+    <span class="text-secondary">Ruolo_Bonus: capo_progetto | capo_ingegnere | direttore_lancio | capcom | astronauta</span>
+  </div>
+
+  <!-- Questions list -->
+  <div class="row g-3">
+    {% for q in questions %}
+    <div class="col-12">
+      <div class="card bg-dark border-secondary">
+        <div class="card-body">
+          <div class="d-flex align-items-start justify-content-between gap-3">
+            <div class="flex-grow-1">
+              <div class="fw-bold text-light mb-2">{{ loop.index }}. {{ q.text }}</div>
+              <div class="d-flex flex-wrap gap-2">
+                {% for i, opt in q.options | enumerate %}
+                <span class="badge {{ 'bg-success' if i == q.correct_answer else 'bg-secondary' }}">
+                  {{ loop.index }}. {{ opt }}
+                  {% if i == q.correct_answer %}<i class="bi bi-check-circle ms-1"></i>{% endif %}
+                </span>
+                {% endfor %}
+              </div>
+              {% if q.bonus_role %}
+              <div class="mt-2">
+                <span class="badge bg-warning text-dark">
+                  <i class="bi bi-star me-1"></i>Bonus: {{ q.bonus_role | replace('_', ' ') | title }}
+                </span>
+              </div>
+              {% endif %}
+            </div>
+            <form method="POST" onsubmit="return confirm('Eliminare questa domanda?')">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="question_id" value="{{ q.id }}">
+              <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="col-12">
+      <div class="text-center text-secondary py-5">
+        <div style="font-size:3rem">❓</div>
+        <p>Nessuna domanda ancora. Aggiungile manualmente o importa un CSV.</p>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="mt-4">
+    <a href="{{ url_for('admin.game_control', session_id=session.id) }}" class="btn btn-outline-warning">
+      <i class="bi bi-joystick me-1"></i>Pannello di Controllo
+    </a>
+  </div>
+</div>
+
+<!-- Add Question Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-warning">Nuova Domanda</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="add">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Testo della domanda *</label>
+            <textarea name="text" rows="3" class="form-control bg-dark border-secondary text-light"
+                      required placeholder="Inserisci la domanda..."></textarea>
+          </div>
+          <div class="row g-2 mb-3">
+            {% for i in range(1, 6) %}
+            <div class="col-md-6">
+              <label class="form-label small">Opzione {{ i }} {% if i <= 3 %}*{% endif %}</label>
+              <input type="text" name="option_{{ i }}" class="form-control bg-dark border-secondary text-light"
+                     placeholder="Opzione {{ i }}" {{ 'required' if i <= 3 else '' }}>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Risposta corretta *</label>
+              <select name="correct" class="form-select bg-dark border-secondary text-light" required>
+                {% for i in range(5) %}
+                <option value="{{ i }}">Opzione {{ i + 1 }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Ruolo Bonus</label>
+              <select name="bonus_role" class="form-select bg-dark border-secondary text-light">
+                <option value="">— Nessuno —</option>
+                {% for key, label in roles.items() %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-warning">Aggiungi Domanda</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- CSV Import Modal -->
+<div class="modal fade" id="csvModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-warning">Importa CSV</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('admin.import_questions', session_id=session.id) }}" enctype="multipart/form-data">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">File CSV</label>
+            <input type="file" name="csv_file" accept=".csv" class="form-control bg-dark border-secondary text-light" required>
+          </div>
+          <div class="small text-secondary">
+            <strong>Colonne richieste:</strong><br>
+            <code>Domanda, Opzione_1, Opzione_2, Opzione_3, Opzione_4, Opzione_5, Risposta_Corretta, Ruolo_Bonus</code><br><br>
+            <strong>Risposta_Corretta:</strong> numero 1-5 o testo esatto dell'opzione<br>
+            <strong>Ruolo_Bonus:</strong> capo_progetto, capo_ingegnere, direttore_lancio, capcom, astronauta
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-warning">Importa</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

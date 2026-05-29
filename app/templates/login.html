@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Login — SpaceMoon{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+  <div class="col-md-4">
+    <div class="card bg-dark border-secondary shadow-lg">
+      <div class="card-body p-5">
+        <div class="text-center mb-4">
+          <div style="font-size:4rem">🚀</div>
+          <h2 class="text-warning fw-bold">SpaceMoon</h2>
+          <p class="text-secondary">La Corsa allo Spazio</p>
+        </div>
+        <form method="POST">
+          <div class="mb-3">
+            <label class="form-label text-light">Username</label>
+            <input type="text" name="username" class="form-control bg-dark border-secondary text-light"
+                   placeholder="Inserisci username" autofocus required>
+          </div>
+          <div class="mb-4">
+            <label class="form-label text-light">Password</label>
+            <input type="password" name="password" class="form-control bg-dark border-secondary text-light"
+                   placeholder="Inserisci password" required>
+          </div>
+          <button type="submit" class="btn btn-warning w-100 fw-bold">
+            <i class="bi bi-rocket-takeoff me-2"></i>Accedi alla Missione
+          </button>
+        </form>
+        <div class="text-center mt-3">
+          <small class="text-secondary">Le credenziali sono fornite dall'insegnante</small>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

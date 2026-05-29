@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Impostazioni Sessione — SpaceMoon{% endblock %}
+
+{% block content %}
+<div class="container py-4" style="max-width:600px">
+  <h2 class="text-warning mb-4"><i class="bi bi-sliders me-2"></i>Impostazioni Sessione #{{ session.id }}</h2>
+
+  <div class="card bg-dark border-secondary">
+    <div class="card-body p-4">
+      <form method="POST">
+        <div class="mb-3">
+          <label class="form-label text-light">Soglia fase (Fase B)</label>
+          <input type="number" name="level_threshold" class="form-control bg-dark border-secondary text-light"
+                 value="{{ session.level_threshold }}" min="10">
+        </div>
+        <div class="mb-3">
+          <label class="form-label text-light">Obiettivo Saturn V</label>
+          <input type="number" name="saturn_v_target" class="form-control bg-dark border-secondary text-light"
+                 value="{{ session.saturn_v_target }}" min="10">
+        </div>
+        <div class="mb-3">
+          <label class="form-label text-light">Obiettivo Apollo-Soyuz</label>
+          <input type="number" name="apollo_soyuz_target" class="form-control bg-dark border-secondary text-light"
+                 value="{{ session.apollo_soyuz_target }}" min="10">
+        </div>
+        <div class="mb-4">
+          <label class="form-label text-light">Durata timer (secondi)</label>
+          <input type="number" name="round_duration" class="form-control bg-dark border-secondary text-light"
+                 value="{{ session.round_duration }}" min="30">
+        </div>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-warning">Salva</button>
+          <a href="{{ url_for('admin.game_control', session_id=session.id) }}" class="btn btn-outline-secondary">Indietro</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

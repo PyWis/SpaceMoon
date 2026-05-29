@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% block title %}Admin Dashboard — SpaceMoon{% endblock %}
+
+{% block content %}
+<div class="container py-3">
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <h2 class="text-warning mb-0"><i class="bi bi-speedometer2 me-2"></i>Centro di Controllo</h2>
+    <a href="{{ url_for('admin.new_session') }}" class="btn btn-warning">
+      <i class="bi bi-plus-circle me-1"></i>Nuova Sessione
+    </a>
+  </div>
+
+  {% if session %}
+  <div class="card bg-dark border-warning mb-4">
+    <div class="card-header bg-warning bg-opacity-10 border-warning">
+      <h5 class="mb-0 text-warning">
+        <i class="bi bi-rocket me-2"></i>Sessione Attiva #{{ session.id }}
+        <span class="badge ms-2
+          {% if session.state == 'setup' %}bg-secondary
+          {% elif session.state == 'phase_a' %}bg-info
+          {% elif session.state == 'phase_b' %}bg-primary
+          {% elif session.state == 'apollo_soyuz' %}bg-warning text-dark
+          {% else %}bg-success{% endif %}">
+          {{ session.state | upper }}
+        </span>
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-3">
+          <div class="text-center p-3 rounded border border-secondary">
+            <div class="fs-1">🛸</div>
+            <div class="fw-bold text-info">{{ session.teams | length }}</div>
+            <div class="text-secondary small">Squadre</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-center p-3 rounded border border-secondary">
+            <div class="fs-1">👩‍🚀</div>
+            <div class="fw-bold text-info">{{ session.users | selectattr('is_superadmin', 'equalto', false) | list | length }}</div>
+            <div class="text-secondary small">Giocatori</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-center p-3 rounded border border-secondary">
+            <div class="fs-1">❓</div>
+            <div class="fw-bold text-info">{{ session.questions | length }}</div>
+            <div class="text-secondary small">Domande</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-center p-3 rounded border border-secondary">
+            <div class="fs-1">🏆</div>
+            <div class="fw-bold text-info">{{ session.current_round }}</div>
+            <div class="text-secondary small">Round completati</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mt-4 flex-wrap">
+        <a href="{{ url_for('admin.manage_teams', session_id=session.id) }}" class="btn btn-outline-info btn-sm">
+          <i class="bi bi-people me-1"></i>Squadre
+        </a>
+        <a href="{{ url_for('admin.manage_users', session_id=session.id) }}" class="btn btn-outline-info btn-sm">
+          <i class="bi bi-person-badge me-1"></i>Utenti
+        </a>
+        <a href="{{ url_for('admin.manage_questions', session_id=session.id) }}" class="btn btn-outline-info btn-sm">
+          <i class="bi bi-question-circle me-1"></i>Domande
+        </a>
+        <a href="{{ url_for('admin.session_settings', session_id=session.id) }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-sliders me-1"></i>Impostazioni
+        </a>
+        <a href="{{ url_for('admin.game_control', session_id=session.id) }}" class="btn btn-warning btn-sm ms-auto">
+          <i class="bi bi-joystick me-1"></i>Pannello di Controllo
+        </a>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="alert alert-secondary">
+    <i class="bi bi-info-circle me-2"></i>Nessuna sessione attiva. Crea una nuova sessione per iniziare.
+  </div>
+  {% endif %}
+
+  {% if sessions %}
+  <h5 class="text-secondary mb-3">Sessioni recenti</h5>
+  <div class="table-responsive">
+    <table class="table table-dark table-hover">
+      <thead><tr>
+        <th>#</th><th>Stato</th><th>Squadre</th><th>Round</th><th>Creata</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for s in sessions %}
+        <tr>
+          <td>{{ s.id }}</td>
+          <td><span class="badge bg-secondary">{{ s.state }}</span></td>
+          <td>{{ s.teams | length }}</td>
+          <td>{{ s.current_round }}</td>
+          <td class="text-secondary small">{{ s.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+          <td>
+            <a href="{{ url_for('admin.game_control', session_id=s.id) }}" class="btn btn-sm btn-outline-warning">
+              <i class="bi bi-joystick"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

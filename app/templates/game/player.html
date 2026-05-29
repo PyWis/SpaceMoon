@@ -1,0 +1,423 @@
+{% extends 'base.html' %}
+{% block title %}{{ current_user.display_name }} — SpaceMoon{% endblock %}
+
+{% block head %}
+<style>
+.opt-btn {
+  transition: all .2s;
+  border-width: 2px;
+  text-align: left;
+  font-size: 1rem;
+}
+.opt-btn:hover:not(:disabled) { transform: translateX(4px); }
+.opt-btn.selected { border-color: #ffc107; background: rgba(255,193,7,.15); }
+.opt-btn.correct  { border-color: #198754; background: rgba(25,135,84,.25) !important; color:#fff; }
+.opt-btn.wrong    { border-color: #dc3545; background: rgba(220,53,69,.15) !important; }
+#timerRing {
+  stroke-dasharray: 220;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset .5s linear;
+  transform-origin: center;
+  transform: rotate(-90deg);
+}
+.timer-wrap { position:relative; width:90px; height:90px; }
+.timer-num  { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+              font-size:1.6rem; font-weight:700; }
+.phase-badge { font-size:.75rem; }
+.score-anim  { animation: scorePop .5s ease; }
+@keyframes scorePop { 0%{transform:scale(1)} 50%{transform:scale(1.4)} 100%{transform:scale(1)} }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-3" style="max-width:650px; margin:auto">
+
+  <!-- Team header -->
+  {% if team %}
+  <div class="card mb-3 border-0" style="background:{{ team.color }}25; border-left:4px solid {{ team.color }} !important; border-radius:8px">
+    <div class="card-body py-2 px-3">
+      <div class="d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center gap-2">
+          <span style="font-size:1.8rem">{{ team.flag }}</span>
+          <div>
+            <div class="fw-bold text-light">{{ team.name }}</div>
+            <div class="small text-secondary">{{ current_user.role_display }}</div>
+          </div>
+        </div>
+        <div class="text-end">
+          <div class="fw-bold" style="color:{{ team.color }}; font-size:1.3rem" id="teamScore">{{ team.total_points }}</div>
+          <div class="small text-secondary">punti squadra</div>
+        </div>
+      </div>
+
+      <!-- Phase progress -->
+      {% if team.launched %}
+      <div class="mt-2">
+        <div class="d-flex gap-1 align-items-center">
+          {% set phase_emojis = ['🛰️','🔥','🌌','🌕','🌍','🌊'] %}
+          {% for i in range(6) %}
+          <span class="phase-badge {{ 'text-warning' if team.phase == i else ('text-success' if team.phase > i else 'text-secondary') }}"
+                style="font-size:1.1rem">
+            {{ phase_emojis[i] }}
+          </span>
+          {% endfor %}
+          <span class="ms-2 small text-info">{{ phase_info.name if phase_info else '' }}</span>
+        </div>
+      </div>
+      {% else %}
+      <div class="mt-2">
+        <div class="d-flex justify-content-between small mb-1">
+          <span class="text-secondary">Saturn V</span>
+          <span class="text-warning">{{ team.saturn_progress }}%</span>
+        </div>
+        <div class="progress" style="height:6px">
+          <div class="progress-bar" style="width:{{ team.saturn_progress }}%;background:{{ team.color }}"></div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Personal score -->
+  <div class="d-flex gap-2 mb-3">
+    <div class="card bg-dark border-secondary flex-grow-1 text-center py-2">
+      <div class="text-warning fw-bold fs-5" id="myScore">{{ current_user.total_personal_points }}</div>
+      <div class="text-secondary small">I tuoi punti</div>
+    </div>
+    <div class="card bg-dark border-secondary flex-grow-1 text-center py-2">
+      <div class="text-light fw-bold fs-5" id="roundNum">{{ gs.current_round }}</div>
+      <div class="text-secondary small">Round</div>
+    </div>
+    <div class="card bg-dark border-secondary flex-grow-1 text-center py-2" id="stateCard">
+      <div class="text-info fw-bold fs-5" id="gameState">
+        {% if gs.state == 'setup' %}⚙️
+        {% elif gs.state == 'phase_a' %}🔨
+        {% elif gs.state == 'phase_b' %}🚀
+        {% elif gs.state == 'apollo_soyuz' %}🤝
+        {% else %}🏁{% endif %}
+      </div>
+      <div class="text-secondary small">{{ gs.state | upper }}</div>
+    </div>
+  </div>
+
+  <!-- Main area: waiting / question / result -->
+  <div id="mainArea">
+
+    {% if gs.state == 'setup' %}
+    <!-- Waiting for game to start -->
+    <div class="card bg-dark border-secondary text-center py-5" id="waitingCard">
+      <div style="font-size:3rem" class="mb-3">⏳</div>
+      <h5 class="text-warning">In attesa dell'insegnante...</h5>
+      <p class="text-secondary">La sessione è pronta. Il gioco inizierà presto!</p>
+    </div>
+
+    {% elif gs.state == 'ended' %}
+    <div class="card bg-dark border-success text-center py-5">
+      <div style="font-size:3rem" class="mb-3">🏆</div>
+      <h4 class="text-success">Missione Completata!</h4>
+      <p class="text-secondary">La classe ha vinto insieme. Complimenti!</p>
+    </div>
+
+    {% elif gs.state == 'apollo_soyuz' %}
+    <!-- Apollo-Soyuz final mission -->
+    <div class="card bg-dark border-warning mb-3">
+      <div class="card-header bg-warning bg-opacity-10 border-warning text-center">
+        <h5 class="text-warning mb-0">🤝 Missione Apollo-Soyuz</h5>
+        <small class="text-secondary">La classe lavora insieme per completare la missione!</small>
+      </div>
+      <div class="card-body text-center">
+        <div class="fs-3 fw-bold text-warning" id="apolloPts">{{ gs.apollo_soyuz_points }}</div>
+        <div class="text-secondary small mb-2">/ {{ gs.apollo_soyuz_target }} punti</div>
+        <div class="progress mb-3" style="height:14px">
+          <div class="progress-bar bg-warning" id="apolloBar"
+               style="width:{{ [gs.apollo_soyuz_points * 100 // gs.apollo_soyuz_target, 100] | min }}%"></div>
+        </div>
+        {% if gs.round_active and assignment and not answer %}
+        <p class="text-info mb-0">Rispondi alla domanda per contribuire punti alla missione!</p>
+        {% else %}
+        <p class="text-secondary mb-0">Attendi il prossimo round.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% elif not gs.round_active %}
+    <!-- Between rounds -->
+    <div class="card bg-dark border-secondary text-center py-5" id="waitingCard">
+      <div style="font-size:3rem" class="mb-3">🌌</div>
+      <h5 class="text-info">In attesa del prossimo round...</h5>
+      <p class="text-secondary small">
+        {% if gs.current_round > 0 %}Round {{ gs.current_round }} completato.{% endif %}
+        L'insegnante avvierà presto il round {{ gs.current_round + 1 }}.
+      </p>
+    </div>
+    {% endif %}
+
+    <!-- Question area (shown when round active and player has assignment) -->
+    {% if gs.round_active and assignment %}
+    <div id="questionArea" class="{{ 'd-none' if answer else '' }}">
+      <div class="card bg-dark border-warning" id="questionCard">
+        <div class="card-header border-warning d-flex align-items-center justify-content-between">
+          <span class="text-warning fw-bold">Round {{ gs.current_round }}</span>
+          <!-- Timer ring -->
+          <div class="timer-wrap">
+            <svg width="90" height="90" viewBox="0 0 90 90">
+              <circle cx="45" cy="45" r="35" fill="none" stroke="#333" stroke-width="5"/>
+              <circle id="timerRing" cx="45" cy="45" r="35" fill="none"
+                      stroke="#ffc107" stroke-width="5" stroke-linecap="round"/>
+            </svg>
+            <div class="timer-num text-warning" id="timerNum">{{ time_left }}</div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <p class="text-light fs-5 mb-4">{{ question.text }}</p>
+
+          <div class="d-grid gap-2" id="optionsGrid">
+            {% set opt_letters = ['A','B','C','D','E'] %}
+            {% for i, opt in question.options | enumerate %}
+            <button class="btn btn-outline-secondary opt-btn" data-idx="{{ i }}" onclick="selectAnswer({{ i }})">
+              <span class="badge bg-secondary me-2">{{ opt_letters[i] }}</span>{{ opt }}
+            </button>
+            {% endfor %}
+          </div>
+
+          <div class="mt-3">
+            <button id="submitBtn" class="btn btn-warning w-100 fw-bold d-none"
+                    onclick="submitAnswer()">
+              <i class="bi bi-send me-2"></i>Conferma Risposta
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Already answered -->
+    {% if answer %}
+    <div id="answeredCard">
+      <div class="card bg-dark border-{{ 'success' if answer.is_correct else 'danger' }} text-center py-4">
+        <div style="font-size:3rem" class="mb-3">
+          {{ '✅' if answer.is_correct else '❌' }}
+        </div>
+        <h5 class="{{ 'text-success' if answer.is_correct else 'text-danger' }}">
+          {{ 'Risposta Corretta!' if answer.is_correct else 'Risposta Errata' }}
+        </h5>
+        <div class="fs-4 fw-bold text-warning mb-2">
+          +{{ answer.points_earned }} punti
+        </div>
+        <p class="text-secondary small">
+          Tempo: {{ '%.1f'|format(answer.time_taken) }}s &bull;
+          Round: {{ gs.current_round }}
+        </p>
+        <!-- Show correct answer -->
+        <div class="mx-3 mt-2">
+          <div class="alert alert-success border-success bg-success bg-opacity-10 text-start small">
+            <strong>Risposta corretta:</strong>
+            {{ question.options[question.correct_answer] }}
+          </div>
+        </div>
+        <p class="text-secondary small">Attendi il prossimo round...</p>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+  </div><!-- mainArea -->
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const socket = io();
+socket.emit('join', {});
+
+let selectedIdx   = null;
+let answered      = {{ 'true' if answer else 'false' }};
+let roundEndTime  = {{ (gs.round_start_time.timestamp() + gs.round_duration) if gs.round_active and gs.round_start_time else 0 }};
+const roundDur    = {{ gs.round_duration }};
+
+// Timer
+const timerNum  = document.getElementById('timerNum');
+const timerRing = document.getElementById('timerRing');
+const circumference = 2 * Math.PI * 35;
+
+function updateTimer() {
+  if (!roundEndTime) return;
+  const now  = Date.now() / 1000;
+  const left = Math.max(0, roundEndTime - now);
+  const pct  = left / roundDur;
+
+  if (timerNum)  timerNum.textContent = Math.ceil(left);
+  if (timerRing) {
+    timerRing.style.strokeDashoffset = circumference * (1 - pct);
+    timerRing.style.stroke = left > 20 ? '#ffc107' : left > 10 ? '#fd7e14' : '#dc3545';
+  }
+
+  if (left <= 0 && !answered) {
+    // Auto-submit empty answer
+    submitAnswer(true);
+  }
+}
+
+let timerInterval = null;
+if (roundEndTime > 0 && !answered) {
+  timerInterval = setInterval(updateTimer, 500);
+  updateTimer();
+}
+
+function selectAnswer(idx) {
+  if (answered) return;
+  selectedIdx = idx;
+  document.querySelectorAll('.opt-btn').forEach((b, i) => {
+    b.classList.toggle('selected', i === idx);
+  });
+  document.getElementById('submitBtn')?.classList.remove('d-none');
+}
+
+function submitAnswer(timeout = false) {
+  if (answered) return;
+  answered = true;
+  if (timerInterval) clearInterval(timerInterval);
+
+  const timeTaken = roundEndTime ? (roundDur - Math.max(0, roundEndTime - Date.now()/1000)) : roundDur + 1;
+
+  fetch('/game/answer', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ answer: timeout ? null : selectedIdx, time_taken: timeTaken }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    showResult(data);
+  })
+  .catch(() => {
+    document.getElementById('questionArea')?.classList.add('d-none');
+    showWaiting('Errore di rete. Attendi...');
+  });
+}
+
+function showResult(data) {
+  document.getElementById('questionArea')?.classList.add('d-none');
+  document.getElementById('waitingCard')?.classList.add('d-none');
+
+  const opts = document.querySelectorAll('.opt-btn');
+  if (data.correct_idx !== undefined) {
+    opts.forEach((b, i) => {
+      if (i === data.correct_idx) b.classList.add('correct');
+      else if (i === selectedIdx)  b.classList.add('wrong');
+      b.disabled = true;
+    });
+  }
+
+  // Show inline result
+  const area = document.getElementById('mainArea');
+  const card = document.createElement('div');
+  card.className = `card bg-dark border-${data.correct ? 'success' : 'danger'} text-center py-4 mt-2`;
+  card.innerHTML = `
+    <div style="font-size:3rem" class="mb-2">${data.correct ? '✅' : '❌'}</div>
+    <h5 class="${data.correct ? 'text-success' : 'text-danger'}">${data.correct ? 'Risposta Corretta!' : 'Risposta Errata'}</h5>
+    <div class="fs-4 fw-bold text-warning mb-2 score-anim">+${data.points} punti</div>
+    <p class="text-secondary small">Tempo: ${data.time_taken}s</p>
+    <p class="text-secondary small mt-2">Attendi il prossimo round...</p>
+  `;
+  area.appendChild(card);
+
+  // Update score
+  const myScore = document.getElementById('myScore');
+  if (myScore) {
+    const cur = parseInt(myScore.textContent) || 0;
+    myScore.textContent = cur + data.points;
+    myScore.classList.add('score-anim');
+    setTimeout(() => myScore.classList.remove('score-anim'), 600);
+  }
+}
+
+function showWaiting(msg) {
+  const area = document.getElementById('mainArea');
+  let wc = document.getElementById('waitingCard');
+  if (!wc) {
+    wc = document.createElement('div');
+    wc.id = 'waitingCard';
+    wc.className = 'card bg-dark border-secondary text-center py-5';
+    area.appendChild(wc);
+  }
+  wc.classList.remove('d-none');
+  wc.innerHTML = `<div style="font-size:2.5rem" class="mb-3">🌌</div><h5 class="text-info">${msg}</h5>`;
+}
+
+// SocketIO events
+socket.on('your_question', function(data) {
+  roundEndTime = data.end_time;
+  answered = false;
+  selectedIdx = null;
+  // Full page reload to get new question
+  location.reload();
+});
+
+socket.on('round_start', function(data) {
+  document.getElementById('roundNum').textContent = data.round;
+  // Reload to pick up the question assignment
+  setTimeout(() => location.reload(), 800);
+});
+
+socket.on('round_end', function(data) {
+  if (timerInterval) clearInterval(timerInterval);
+  if (!answered) {
+    showResult({ correct: false, points: 0, time_taken: roundDur + 1 });
+  }
+  document.getElementById('questionArea')?.classList.add('d-none');
+  showWaiting('Round terminato! Attendi il prossimo...');
+});
+
+socket.on('game_state', function(data) {
+  const teamData = data.teams.find(t => t.id === {{ team.id if team else 0 }});
+  if (teamData) {
+    document.getElementById('teamScore').textContent = teamData.total_points;
+  }
+  if (data.apollo_soyuz_points !== undefined) {
+    const ap = document.getElementById('apolloPts');
+    const ab = document.getElementById('apolloBar');
+    if (ap) ap.textContent = data.apollo_soyuz_points;
+    if (ab) ab.style.width = Math.min(100, Math.round(data.apollo_soyuz_points / data.apollo_soyuz_target * 100)) + '%';
+  }
+});
+
+socket.on('phase_update', function(data) {
+  if (data.team_id === {{ team.id if team else 0 }}) {
+    // Show phase advancement notification
+    const note = document.createElement('div');
+    note.className = 'alert alert-success alert-dismissible fade show position-fixed bottom-0 start-0 m-3';
+    note.style.zIndex = 9999;
+    note.innerHTML = `${data.emoji} <strong>${data.phase_name}!</strong> La tua squadra ha avanzato alla fase ${data.phase}/5!
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+    document.body.appendChild(note);
+    setTimeout(() => note.remove(), 5000);
+  }
+});
+
+socket.on('game_won', function(data) {
+  document.getElementById('mainArea').innerHTML = `
+    <div class="card bg-dark border-success text-center py-5">
+      <div style="font-size:4rem" class="mb-3">🏆</div>
+      <h3 class="text-success">VITTORIA!</h3>
+      <p class="text-light">${data.message}</p>
+    </div>`;
+});
+
+socket.on('launch', function(data) {
+  if (data.team_id === {{ team.id if team else 0 }}) {
+    const note = document.createElement('div');
+    note.className = 'alert alert-warning alert-dismissible fade show position-fixed bottom-0 start-0 m-3';
+    note.style.zIndex = 9999;
+    note.innerHTML = `🚀 <strong>Saturn V LANCIATO!</strong> La missione inizia ora!
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+    document.body.appendChild(note);
+    setTimeout(() => { note.remove(); location.reload(); }, 3000);
+  }
+});
+
+socket.on('apollo_soyuz_start', function(data) {
+  location.reload();
+});
+</script>
+{% endblock %}

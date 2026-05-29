@@ -1,0 +1,229 @@
+{% extends 'base.html' %}
+{% block title %}Utenti — SpaceMoon{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <h2 class="text-warning mb-0"><i class="bi bi-people-fill me-2"></i>Gestione Utenti</h2>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#bulkModal">
+        <i class="bi bi-person-plus me-1"></i>Crea in blocco
+      </button>
+      <button class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#addModal">
+        <i class="bi bi-plus me-1"></i>Nuovo utente
+      </button>
+    </div>
+  </div>
+
+  <!-- Players table -->
+  <div class="card bg-dark border-secondary mb-4">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0">
+          <thead class="table-secondary">
+            <tr>
+              <th>Nome</th><th>Username</th><th>Squadra</th><th>Ruolo</th><th>Punti</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in players %}
+            <tr>
+              <td>{{ p.display_name }}</td>
+              <td><code class="text-info">{{ p.username }}</code></td>
+              <td>
+                {% if p.team %}
+                <span class="badge" style="background:{{ p.team.color }}">
+                  {{ p.team.flag }} {{ p.team.name }}
+                </span>
+                {% else %}
+                <span class="text-secondary">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if p.role %}
+                <span class="badge bg-secondary">{{ p.role_display }}</span>
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ p.total_personal_points }}</td>
+              <td>
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal"
+                        data-bs-target="#editModal"
+                        data-uid="{{ p.id }}"
+                        data-name="{{ p.display_name }}"
+                        data-team="{{ p.team_id or '' }}"
+                        data-role="{{ p.role or '' }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <form method="POST" class="d-inline" onsubmit="return confirm('Eliminare {{ p.display_name }}?')">
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="user_id" value="{{ p.id }}">
+                  <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center text-secondary py-4">Nessun utente creato.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <a href="{{ url_for('admin.game_control', session_id=session.id) }}" class="btn btn-outline-warning">
+    <i class="bi bi-joystick me-1"></i>Vai al Pannello di Controllo
+  </a>
+</div>
+
+<!-- Add Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-warning">Nuovo Utente</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="create">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Nome visualizzato</label>
+            <input type="text" name="display_name" class="form-control bg-dark border-secondary text-light"
+                   placeholder="es. Mario Rossi" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Squadra</label>
+            <select name="team_id" class="form-select bg-dark border-secondary text-light">
+              <option value="">— Nessuna squadra —</option>
+              {% for t in session.teams %}
+              <option value="{{ t.id }}">{{ t.flag }} {{ t.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ruolo</label>
+            <select name="role" class="form-select bg-dark border-secondary text-light">
+              <option value="">— Nessun ruolo —</option>
+              {% for key, label in roles.items() %}
+              <option value="{{ key }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="alert alert-info bg-info bg-opacity-10 border-info small">
+            <i class="bi bi-info-circle me-1"></i>
+            Username e password vengono generati automaticamente. Verranno mostrati dopo la creazione nel messaggio di conferma.
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-warning">Crea Utente</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-warning">Modifica Utente</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="update">
+        <input type="hidden" name="user_id" id="editUserId">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Nome visualizzato</label>
+            <input type="text" name="display_name" id="editName" class="form-control bg-dark border-secondary text-light">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Squadra</label>
+            <select name="team_id" id="editTeam" class="form-select bg-dark border-secondary text-light">
+              <option value="">— Nessuna squadra —</option>
+              {% for t in session.teams %}
+              <option value="{{ t.id }}">{{ t.flag }} {{ t.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ruolo</label>
+            <select name="role" id="editRole" class="form-select bg-dark border-secondary text-light">
+              <option value="">— Nessun ruolo —</option>
+              {% for key, label in roles.items() %}
+              <option value="{{ key }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-warning">Salva</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Modal -->
+<div class="modal fade" id="bulkModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-warning">Crea Utenti in Blocco</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('admin.bulk_create_users', session_id=session.id) }}">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label">Numero utenti</label>
+              <input type="number" name="count" class="form-control bg-dark border-secondary text-light"
+                     value="5" min="1" max="50">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Prefisso nome</label>
+              <input type="text" name="prefix" class="form-control bg-dark border-secondary text-light"
+                     value="Studente">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Squadra</label>
+              <select name="team_id" class="form-select bg-dark border-secondary text-light">
+                <option value="">— Nessuna —</option>
+                {% for t in session.teams %}
+                <option value="{{ t.id }}">{{ t.flag }} {{ t.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Ruolo</label>
+              <select name="role" class="form-select bg-dark border-secondary text-light">
+                <option value="">— Nessuno —</option>
+                {% for key, label in roles.items() %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-warning">Crea</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('editModal').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  document.getElementById('editUserId').value = btn.dataset.uid;
+  document.getElementById('editName').value   = btn.dataset.name;
+  document.getElementById('editTeam').value   = btn.dataset.team;
+  document.getElementById('editRole').value   = btn.dataset.role;
+});
+</script>
+{% endblock %}
