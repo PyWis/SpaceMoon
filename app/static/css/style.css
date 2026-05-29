@@ -25,8 +25,14 @@ body.space-bg {
   50%       { opacity: .2; transform: scale(0.6); }
 }
 
-/* Cards above stars */
-.card, .navbar, main, .modal-content { position: relative; z-index: 1; }
+/* Cards above stars — NON toccare modal-content: Bootstrap gestisce i suoi z-index */
+.card, .navbar, main { position: relative; z-index: 1; }
+
+/* Modal: lascia che Bootstrap usi i propri z-index (1055/1050) */
+.modal { z-index: 1055 !important; }
+.modal-backdrop { z-index: 1050 !important; }
+.modal-dialog { position: relative; z-index: auto; }
+.modal-content { position: relative; z-index: auto; }
 
 /* Dark card defaults */
 .card {
