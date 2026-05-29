@@ -233,7 +233,7 @@ socket.emit('join', {});
 
 let selectedIdx   = null;
 let answered      = {{ 'true' if answer else 'false' }};
-let roundEndTime  = {{ (gs.round_start_time.timestamp() + gs.round_duration) if gs.round_active and gs.round_start_time else 0 }};
+let roundEndTime  = {{ time_left }} > 0 ? (Date.now() / 1000) + {{ time_left }} : 0;
 const roundDur    = {{ gs.round_duration }};
 
 // Timer

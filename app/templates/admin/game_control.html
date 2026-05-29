@@ -364,7 +364,7 @@
 <script>
 const sessionId = {{ session.id }};
 const roundDuration = {{ session.round_duration }};
-let roundEndTime = {{ (session.round_start_time.timestamp() + session.round_duration) if session.round_active and session.round_start_time else 0 }};
+let roundEndTime = {{ time_left }} > 0 ? (Date.now() / 1000) + {{ time_left }} : 0;
 let timerInterval = null;
 let pollInterval  = null;
 

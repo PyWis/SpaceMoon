@@ -282,9 +282,13 @@ def game_control(session_id):
     s = db.get_or_404(GameSession, session_id)
     players = User.query.filter_by(session_id=s.id, is_superadmin=False).all()
     questions_count = Question.query.filter_by(session_id=s.id).count()
+    time_left = 0
+    if s.round_active and s.round_start_time:
+        elapsed = (datetime.utcnow() - s.round_start_time).total_seconds()
+        time_left = int(max(0, s.round_duration - elapsed))
     return render_template('admin/game_control.html', session=s,
                            players=players, questions_count=questions_count,
-                           mission_phases=MISSION_PHASES)
+                           mission_phases=MISSION_PHASES, time_left=time_left)
 
 
 @admin_bp.route('/session/<int:session_id>/start', methods=['POST'])
