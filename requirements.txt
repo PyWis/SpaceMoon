@@ -4,4 +4,5 @@ Flask-Login==0.6.3
 Flask-SocketIO==5.3.6
 Werkzeug==3.0.3
 python-dotenv==1.0.1
-eventlet==0.36.1
+# eventlet è opzionale — se non disponibile viene usato threading
+# pip install eventlet   (consigliato su Linux/Mac)

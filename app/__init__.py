@@ -3,13 +3,13 @@ from config import Config
 from app.extensions import db, login_manager, socketio
 
 
-def create_app(config_class=Config):
+def create_app(config_class=Config, async_mode='threading'):
     app = Flask(__name__)
     app.config.from_object(config_class)
 
     db.init_app(app)
     login_manager.init_app(app)
-    socketio.init_app(app, cors_allowed_origins='*', async_mode='eventlet')
+    socketio.init_app(app, cors_allowed_origins='*', async_mode=async_mode)
 
     login_manager.login_view = 'auth.login'
     login_manager.login_message = 'Effettua il login per accedere.'

@@ -1,11 +1,15 @@
-import eventlet
-eventlet.monkey_patch()
+try:
+    import eventlet
+    eventlet.monkey_patch()
+    _async_mode = 'eventlet'
+except ImportError:
+    _async_mode = 'threading'
 
 from app import create_app, socketio
 from app.extensions import db
 from app.models import User
 
-app = create_app()
+app = create_app(async_mode=_async_mode)
 
 if __name__ == '__main__':
     with app.app_context():
@@ -17,4 +21,5 @@ if __name__ == '__main__':
             db.session.commit()
             print("✅ Superadmin creato — login: admin / admin123")
 
+    print(f"⚙️  Modalità async: {_async_mode}")
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)
