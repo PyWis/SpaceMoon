@@ -222,7 +222,27 @@
     {% endif %}
     {% endif %}
 
+    <!-- Countdown between rounds (shown by socket event) -->
+    <div id="countdownCard" class="d-none card bg-dark border-info text-center py-4 mt-2">
+      <div style="font-size:2.5rem">⏰</div>
+      <h5 class="text-info mt-2">Prossimo round tra...</h5>
+      <div class="fs-2 fw-bold text-warning" id="countdownNum">--</div>
+    </div>
+
   </div><!-- mainArea -->
+</div>
+
+<!-- YouTube video overlay -->
+<div id="videoOverlay" class="d-none position-fixed top-0 start-0 w-100 h-100"
+     style="z-index:9100;background:rgba(0,0,0,.95)">
+  <div class="d-flex flex-column align-items-center justify-content-center h-100 px-3">
+    <h5 class="text-warning mb-3" id="videoTitle">Video</h5>
+    <div class="ratio ratio-16x9" style="max-width:min(90vw,700px);width:100%">
+      <iframe id="videoFrame" src="" allowfullscreen
+              allow="autoplay; encrypted-media" frameborder="0"></iframe>
+    </div>
+    <p class="text-secondary mt-3 small">Il prossimo round inizierà automaticamente...</p>
+  </div>
 </div>
 {% endblock %}
 
@@ -347,17 +367,42 @@ function showWaiting(msg) {
 
 // SocketIO events
 socket.on('your_question', function(data) {
-  roundEndTime = data.end_time;
   answered = false;
   selectedIdx = null;
-  // Full page reload to get new question
   location.reload();
 });
 
 socket.on('round_start', function(data) {
   document.getElementById('roundNum').textContent = data.round;
-  // Reload to pick up the question assignment
+  document.getElementById('videoOverlay')?.classList.add('d-none');
+  document.getElementById('videoFrame').src = '';
+  document.getElementById('countdownCard')?.classList.add('d-none');
   setTimeout(() => location.reload(), 800);
+});
+
+socket.on('round_countdown', function(data) {
+  const card = document.getElementById('countdownCard');
+  const num  = document.getElementById('countdownNum');
+  if (card) card.classList.remove('d-none');
+  let secs = data.seconds;
+  if (num) num.textContent = secs;
+  const ct = setInterval(() => {
+    secs--;
+    if (num) num.textContent = Math.max(0, secs);
+    if (secs <= 0) clearInterval(ct);
+  }, 1000);
+});
+
+socket.on('play_video', function(data) {
+  if (!data.embed_url) return;
+  document.getElementById('countdownCard')?.classList.add('d-none');
+  document.getElementById('videoTitle').textContent = data.title;
+  document.getElementById('videoFrame').src = data.embed_url;
+  document.getElementById('videoOverlay')?.classList.remove('d-none');
+  setTimeout(() => {
+    document.getElementById('videoOverlay')?.classList.add('d-none');
+    document.getElementById('videoFrame').src = '';
+  }, (data.duration_seconds + 3) * 1000);
 });
 
 socket.on('round_end', function(data) {

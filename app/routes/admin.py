@@ -2,11 +2,11 @@ import random
 import string
 from datetime import datetime
 from flask import (Blueprint, render_template, redirect, url_for,
-                   request, flash, jsonify)
+                   request, flash, jsonify, current_app)
 from flask_login import login_required, current_user
 from app.extensions import db, socketio
 from app.models import (GameSession, Team, User, Question, RoundAssignment,
-                        Answer, Alliance, BonusLog, AGENCIES, ROLES,
+                        Answer, Alliance, BonusLog, MediaItem, AGENCIES, ROLES,
                         MISSION_PHASES)
 from app.utils.csv_parser import parse_questions_csv
 from app.utils.scoring import calculate_points, calculate_team_bonuses
@@ -37,6 +37,73 @@ def _broadcast_state(session):
     data['teams'] = [t.to_dict() for t in session.teams]
     data['alliances'] = [a.to_dict() for a in session.alliances]
     socketio.emit('game_state', data, room='game_room')
+
+
+def _do_start_round(s):
+    """Start a new round. Call within an active app context with an open db session."""
+    players   = User.query.filter_by(session_id=s.id, is_superadmin=False).all()
+    questions = Question.query.filter_by(session_id=s.id).all()
+    if not players or not questions:
+        return False
+
+    s.current_round    += 1
+    s.round_active      = True
+    s.round_start_time  = datetime.utcnow()
+    db.session.flush()
+
+    q_pool = list(questions)
+    random.shuffle(q_pool)
+    team_assigned: dict = {}
+    for player in players:
+        team_assigned.setdefault(player.team_id, set())
+
+    for player in players:
+        tid       = player.team_id
+        preferred = [q for q in q_pool if q.id not in team_assigned[tid]]
+        pick      = random.choice(preferred if preferred else q_pool)
+        team_assigned[tid].add(pick.id)
+        db.session.add(RoundAssignment(
+            session_id=s.id,
+            round_number=s.current_round,
+            user_id=player.id,
+            question_id=pick.id,
+        ))
+
+    db.session.commit()
+
+    socketio.emit('round_start', {
+        'round':    s.current_round,
+        'duration': s.round_duration,
+    }, room='game_room')
+
+    for ra in RoundAssignment.query.filter_by(session_id=s.id, round_number=s.current_round).all():
+        q = db.session.get(Question, ra.question_id)
+        socketio.emit('your_question', {
+            'round':    s.current_round,
+            'question': q.to_dict(),
+            'duration': s.round_duration,
+        }, room=f'user_{ra.user_id}')
+
+    return True
+
+
+def _auto_advance_task(flask_app, session_id, generation, video_delay, between_delay):
+    """Background thread: optionally wait for a video then start next round."""
+    if video_delay > 0:
+        socketio.sleep(video_delay)
+        with flask_app.app_context():
+            s = db.session.get(GameSession, session_id)
+            if not s or s.auto_advance_gen != generation or s.paused:
+                return
+        socketio.emit('round_countdown', {'seconds': between_delay}, room='game_room')
+
+    socketio.sleep(between_delay)
+    with flask_app.app_context():
+        s = db.session.get(GameSession, session_id)
+        if (s and s.auto_advance_gen == generation and not s.paused
+                and s.state in ('phase_a', 'phase_b', 'apollo_soyuz')
+                and not s.round_active):
+            _do_start_round(s)
 
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -76,10 +143,12 @@ def new_session():
 def session_settings(session_id):
     s = db.get_or_404(GameSession, session_id)
     if request.method == 'POST':
-        s.level_threshold    = int(request.form.get('level_threshold', s.level_threshold))
-        s.saturn_v_target    = int(request.form.get('saturn_v_target', s.saturn_v_target))
-        s.apollo_soyuz_target= int(request.form.get('apollo_soyuz_target', s.apollo_soyuz_target))
-        s.round_duration     = int(request.form.get('round_duration', s.round_duration))
+        s.level_threshold     = int(request.form.get('level_threshold',     s.level_threshold))
+        s.saturn_v_target     = int(request.form.get('saturn_v_target',     s.saturn_v_target))
+        s.apollo_soyuz_target = int(request.form.get('apollo_soyuz_target', s.apollo_soyuz_target))
+        s.round_duration      = int(request.form.get('round_duration',      s.round_duration))
+        s.between_round_delay = int(request.form.get('between_round_delay', s.between_round_delay))
+        s.auto_advance        = 'auto_advance' in request.form
         db.session.commit()
         flash('Impostazioni aggiornate.', 'success')
     return render_template('admin/session_settings.html', session=s)
@@ -310,6 +379,14 @@ def start_game(session_id):
     db.session.commit()
     _broadcast_state(s)
     flash('Fase A avviata — Costruzione Saturn V!', 'success')
+
+    if s.auto_advance and not s.paused:
+        socketio.emit('round_countdown', {'seconds': s.between_round_delay}, room='game_room')
+        socketio.start_background_task(
+            _auto_advance_task, current_app._get_current_object(),
+            s.id, s.auto_advance_gen, 0, s.between_round_delay,
+        )
+
     return redirect(url_for('admin.game_control', session_id=s.id))
 
 
@@ -317,6 +394,7 @@ def start_game(session_id):
 @login_required
 @superadmin_required
 def start_round(session_id):
+    """Manual round start — also cancels any pending auto-advance countdown."""
     s = db.get_or_404(GameSession, session_id)
     if s.state not in ('phase_a', 'phase_b', 'apollo_soyuz'):
         flash('Impossibile avviare un round ora.', 'danger')
@@ -325,67 +403,15 @@ def start_round(session_id):
         flash('Un round è già in corso.', 'warning')
         return redirect(url_for('admin.game_control', session_id=s.id))
 
-    players = User.query.filter_by(session_id=s.id, is_superadmin=False).all()
-    if not players:
-        flash('Nessun giocatore registrato.', 'danger')
-        return redirect(url_for('admin.game_control', session_id=s.id))
-
-    questions = Question.query.filter_by(session_id=s.id).all()
-    if not questions:
-        flash('Nessuna domanda disponibile.', 'danger')
-        return redirect(url_for('admin.game_control', session_id=s.id))
-
-    s.current_round += 1
-    s.round_active = True
-    s.round_start_time = datetime.utcnow()
+    # Cancel any pending background countdown
+    s.auto_advance_gen += 1
+    s.paused = False
     db.session.flush()
 
-    # Assign random questions — teammates get different questions when possible
-    q_pool = list(questions)
-    random.shuffle(q_pool)
-
-    team_assigned: dict[int, set] = {}  # team_id → set of question_ids already assigned
-    for player in players:
-        team_assigned.setdefault(player.team_id, set())
-
-    for player in players:
-        tid = player.team_id
-        # Prefer questions not yet assigned to this team in this round
-        preferred = [q for q in q_pool if q.id not in team_assigned[tid]]
-        pick = random.choice(preferred if preferred else q_pool)
-        team_assigned[tid].add(pick.id)
-
-        ra = RoundAssignment(
-            session_id=s.id,
-            round_number=s.current_round,
-            user_id=player.id,
-            question_id=pick.id,
-        )
-        db.session.add(ra)
-
-    db.session.commit()
-
-    # Broadcast round start with per-player question data
-    round_end_time = s.round_start_time.timestamp() + s.round_duration
-    socketio.emit('round_start', {
-        'round': s.current_round,
-        'end_time': round_end_time,
-        'duration': s.round_duration,
-    }, room='game_room')
-
-    # Push personalised question to each connected player
-    assignments = RoundAssignment.query.filter_by(
-        session_id=s.id, round_number=s.current_round
-    ).all()
-    for ra in assignments:
-        q = db.session.get(Question, ra.question_id)
-        socketio.emit('your_question', {
-            'round': s.current_round,
-            'question': q.to_dict(),
-            'end_time': round_end_time,
-        }, room=f'user_{ra.user_id}')
-
-    flash(f'Round {s.current_round} avviato!', 'success')
+    if not _do_start_round(s):
+        flash('Nessun giocatore o domanda disponibile.', 'danger')
+    else:
+        flash(f'Round {s.current_round} avviato!', 'success')
     return redirect(url_for('admin.game_control', session_id=s.id))
 
 
@@ -401,15 +427,100 @@ def end_round(session_id):
     s.round_active = False
     db.session.flush()
 
-    # Process bonuses and phase advancement
     round_results = _process_round_end(s)
-
     db.session.commit()
 
     socketio.emit('round_end', round_results, room='game_room')
     _broadcast_state(s)
 
+    if s.auto_advance and not s.paused and s.state not in ('ended', 'setup'):
+        generation = s.auto_advance_gen
+        video = MediaItem.query.filter_by(
+            session_id=s.id, display_after_round=s.current_round
+        ).first()
+        if video:
+            socketio.emit('play_video', video.to_dict(), room='game_room')
+            socketio.start_background_task(
+                _auto_advance_task, current_app._get_current_object(),
+                s.id, generation, video.duration_seconds, s.between_round_delay,
+            )
+        else:
+            socketio.emit('round_countdown', {'seconds': s.between_round_delay}, room='game_room')
+            socketio.start_background_task(
+                _auto_advance_task, current_app._get_current_object(),
+                s.id, generation, 0, s.between_round_delay,
+            )
+
     flash(f'Round {s.current_round} concluso!', 'success')
+    return redirect(url_for('admin.game_control', session_id=s.id))
+
+
+@admin_bp.route('/session/<int:session_id>/pause', methods=['POST'])
+@login_required
+@superadmin_required
+def pause_game(session_id):
+    s = db.get_or_404(GameSession, session_id)
+    s.paused = not s.paused
+    s.auto_advance_gen += 1  # cancel any pending background task
+    db.session.commit()
+    socketio.emit('game_paused', {'paused': s.paused}, room='game_room')
+    if not s.paused and not s.round_active and s.state in ('phase_a', 'phase_b', 'apollo_soyuz'):
+        socketio.emit('round_countdown', {'seconds': s.between_round_delay}, room='game_room')
+        socketio.start_background_task(
+            _auto_advance_task, current_app._get_current_object(),
+            s.id, s.auto_advance_gen, 0, s.between_round_delay,
+        )
+    flash('Gioco in pausa.' if s.paused else 'Gioco ripreso.', 'info')
+    return redirect(url_for('admin.game_control', session_id=s.id))
+
+
+# ─── Media management ─────────────────────────────────────────────────────────
+
+@admin_bp.route('/session/<int:session_id>/media/add', methods=['POST'])
+@login_required
+@superadmin_required
+def add_media(session_id):
+    s   = db.get_or_404(GameSession, session_id)
+    url = request.form.get('youtube_url', '').strip()
+    if not url:
+        flash('URL YouTube obbligatorio.', 'danger')
+        return redirect(url_for('admin.game_control', session_id=s.id))
+    after = request.form.get('display_after_round') or None
+    item  = MediaItem(
+        session_id=s.id,
+        youtube_url=url,
+        title=request.form.get('title', '').strip() or 'Video',
+        display_after_round=int(after) if after else None,
+        duration_seconds=int(request.form.get('duration_seconds', 120)),
+    )
+    db.session.add(item)
+    db.session.commit()
+    flash('Video aggiunto!', 'success')
+    return redirect(url_for('admin.game_control', session_id=s.id))
+
+
+@admin_bp.route('/session/<int:session_id>/media/<int:media_id>/delete', methods=['POST'])
+@login_required
+@superadmin_required
+def delete_media(session_id, media_id):
+    s    = db.get_or_404(GameSession, session_id)
+    item = db.session.get(MediaItem, media_id)
+    if item and item.session_id == s.id:
+        db.session.delete(item)
+        db.session.commit()
+        flash('Video rimosso.', 'success')
+    return redirect(url_for('admin.game_control', session_id=s.id))
+
+
+@admin_bp.route('/session/<int:session_id>/media/<int:media_id>/play', methods=['POST'])
+@login_required
+@superadmin_required
+def play_media_now(session_id, media_id):
+    s    = db.get_or_404(GameSession, session_id)
+    item = db.session.get(MediaItem, media_id)
+    if item and item.session_id == s.id:
+        socketio.emit('play_video', item.to_dict(), room='game_room')
+        flash(f'Video "{item.title}" inviato.', 'success')
     return redirect(url_for('admin.game_control', session_id=s.id))
 
 

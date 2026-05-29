@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import re
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from app.extensions import db, login_manager
@@ -48,12 +49,18 @@ class GameSession(db.Model):
     round_active         = db.Column(db.Boolean, default=False)
     round_start_time     = db.Column(db.DateTime)
     round_duration       = db.Column(db.Integer, default=60)  # seconds
+    auto_advance         = db.Column(db.Boolean, default=True)
+    between_round_delay  = db.Column(db.Integer, default=10)   # seconds between rounds
+    paused               = db.Column(db.Boolean, default=False)
+    auto_advance_gen     = db.Column(db.Integer, default=0)    # incremented to cancel pending tasks
 
-    teams     = db.relationship('Team',     backref='session', lazy=True)
-    questions = db.relationship('Question', backref='session', lazy=True)
-    users     = db.relationship('User',     backref='session', lazy=True)
-    alliances = db.relationship('Alliance', backref='session', lazy=True)
-    bonuses   = db.relationship('BonusLog', backref='session', lazy=True)
+    teams       = db.relationship('Team',      backref='session', lazy=True)
+    questions   = db.relationship('Question',  backref='session', lazy=True)
+    users       = db.relationship('User',      backref='session', lazy=True)
+    alliances   = db.relationship('Alliance',  backref='session', lazy=True)
+    bonuses     = db.relationship('BonusLog',  backref='session', lazy=True)
+    media_items = db.relationship('MediaItem', backref='session', lazy=True,
+                                  cascade='all, delete-orphan')
 
     @property
     def finished_teams_count(self):
@@ -72,6 +79,9 @@ class GameSession(db.Model):
             'round_start_time':    self.round_start_time.isoformat() if self.round_start_time else None,
             'round_duration':      self.round_duration,
             'finished_teams':      self.finished_teams_count,
+            'auto_advance':        self.auto_advance,
+            'between_round_delay': self.between_round_delay,
+            'paused':              self.paused,
         }
 
 
@@ -293,6 +303,34 @@ class BonusLog(db.Model):
     bonus_type   = db.Column(db.String(30))  # en_plein | role_bonus
     points       = db.Column(db.Integer, default=10)
     created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class MediaItem(db.Model):
+    __tablename__ = 'media_items'
+
+    id                  = db.Column(db.Integer, primary_key=True)
+    session_id          = db.Column(db.Integer, db.ForeignKey('game_sessions.id'), nullable=False)
+    youtube_url         = db.Column(db.String(500), nullable=False)
+    title               = db.Column(db.String(200), default='')
+    display_after_round = db.Column(db.Integer, nullable=True)  # None = manual only
+    duration_seconds    = db.Column(db.Integer, default=120)
+
+    @property
+    def video_id(self):
+        m = re.search(r'(?:v=|youtu\.be/|embed/)([a-zA-Z0-9_-]{11})', self.youtube_url)
+        return m.group(1) if m else None
+
+    def to_dict(self):
+        vid = self.video_id
+        return {
+            'id':                  self.id,
+            'title':               self.title or 'Video',
+            'youtube_url':         self.youtube_url,
+            'video_id':            vid,
+            'embed_url':           f'https://www.youtube.com/embed/{vid}?autoplay=1&rel=0' if vid else None,
+            'display_after_round': self.display_after_round,
+            'duration_seconds':    self.duration_seconds,
+        }
 
 
 @login_manager.user_loader

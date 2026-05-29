@@ -78,10 +78,15 @@
             {% if session.state == 'apollo_soyuz' %}
             <span class="badge bg-warning text-dark ms-1">Apollo-Soyuz</span>
             {% endif %}
+            {% if session.paused %}
+            <span class="badge bg-danger ms-1"><i class="bi bi-pause-fill"></i> PAUSA</span>
+            {% elif session.auto_advance %}
+            <span class="badge bg-success ms-1"><i class="bi bi-play-fill"></i> AUTO</span>
+            {% endif %}
           </h6>
         </div>
         <div class="card-body">
-          <!-- Timer bar -->
+          <!-- Active round timer -->
           <div id="timerSection" class="{{ '' if session.round_active else 'd-none' }} mb-3">
             <div class="d-flex justify-content-between small mb-1">
               <span class="text-secondary">Tempo rimanente</span>
@@ -95,18 +100,38 @@
             </div>
           </div>
 
+          <!-- Countdown between rounds -->
+          <div id="countdownSection" class="d-none mb-3 text-center py-2">
+            <div class="text-info small mb-1">Prossimo round tra...</div>
+            <div class="fs-2 fw-bold text-warning" id="adminCountdown">--</div>
+          </div>
+
           <div class="d-grid gap-2">
-            {% if not session.round_active %}
-            <form method="POST" action="{{ url_for('admin.start_round', session_id=session.id) }}">
-              <button class="btn btn-success w-100">
-                <i class="bi bi-play-fill me-2"></i>Avvia Round {{ session.current_round + 1 }}
-              </button>
-            </form>
-            {% else %}
+            {% if session.round_active %}
             <form method="POST" action="{{ url_for('admin.end_round', session_id=session.id) }}"
                   onsubmit="return confirm('Terminare il round anticipatamente?')">
               <button class="btn btn-danger w-100">
                 <i class="bi bi-stop-fill me-2"></i>Termina Round
+              </button>
+            </form>
+            {% endif %}
+
+            <!-- Pause / Resume -->
+            <form method="POST" action="{{ url_for('admin.pause_game', session_id=session.id) }}">
+              <button class="btn {{ 'btn-success' if session.paused else 'btn-outline-warning' }} w-100">
+                {% if session.paused %}
+                <i class="bi bi-play-fill me-1"></i>Riprendi Auto-Avvio
+                {% else %}
+                <i class="bi bi-pause-fill me-1"></i>Metti in Pausa
+                {% endif %}
+              </button>
+            </form>
+
+            <!-- Manual override (always available) -->
+            {% if not session.round_active %}
+            <form method="POST" action="{{ url_for('admin.start_round', session_id=session.id) }}">
+              <button class="btn btn-outline-secondary btn-sm w-100">
+                <i class="bi bi-skip-forward-fill me-1"></i>Avvia Subito
               </button>
             </form>
             {% endif %}
@@ -146,6 +171,50 @@
       </div>
       {% endif %}
       {% endif %}
+
+      <!-- Media / YouTube videos -->
+      <div class="card bg-dark border-secondary mb-3">
+        <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+          <h6 class="mb-0 text-warning"><i class="bi bi-youtube me-1"></i>Video YouTube</h6>
+          <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#mediaModal">
+            <i class="bi bi-plus"></i>
+          </button>
+        </div>
+        <div class="card-body p-0">
+          {% if session.media_items %}
+          <div class="list-group list-group-flush">
+            {% for item in session.media_items %}
+            <div class="list-group-item bg-dark border-secondary d-flex justify-content-between align-items-center py-2 px-3">
+              <div>
+                <div class="text-light small fw-bold">{{ item.title }}</div>
+                <div class="text-secondary" style="font-size:.7rem">
+                  {% if item.display_after_round %}Dopo round {{ item.display_after_round }}{% else %}Solo manuale{% endif %}
+                  &bull; {{ item.duration_seconds }}s
+                </div>
+              </div>
+              <div class="d-flex gap-1">
+                <form method="POST" action="{{ url_for('admin.play_media_now', session_id=session.id, media_id=item.id) }}">
+                  <button class="btn btn-sm btn-outline-success py-0 px-2" title="Riproduci ora">
+                    <i class="bi bi-play-fill"></i>
+                  </button>
+                </form>
+                <form method="POST" action="{{ url_for('admin.delete_media', session_id=session.id, media_id=item.id) }}"
+                      onsubmit="return confirm('Rimuovere il video?')">
+                  <button class="btn btn-sm btn-outline-danger py-0 px-2">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="text-secondary small text-center py-3">
+            Nessun video. Aggiungine uno con il <i class="bi bi-plus"></i>.
+          </div>
+          {% endif %}
+        </div>
+      </div>
 
       <!-- Quick links -->
       <div class="d-flex gap-2 flex-wrap">
@@ -322,6 +391,52 @@
 {% endblock %}
 
 {% block modals %}
+<!-- Media Modal -->
+<div class="modal fade" id="mediaModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-warning"><i class="bi bi-youtube me-2"></i>Aggiungi Video YouTube</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('admin.add_media', session_id=session.id) }}">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">URL YouTube *</label>
+            <input type="url" name="youtube_url" class="form-control bg-dark border-secondary text-light"
+                   placeholder="https://www.youtube.com/watch?v=..." required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Titolo</label>
+            <input type="text" name="title" class="form-control bg-dark border-secondary text-light"
+                   placeholder="es. Lancio Apollo 11">
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small">Mostra dopo il round <span class="text-secondary">(vuoto = solo manuale)</span></label>
+              <input type="number" name="display_after_round" min="1"
+                     class="form-control bg-dark border-secondary text-light"
+                     placeholder="es. 3">
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Durata (secondi)</label>
+              <input type="number" name="duration_seconds" value="120" min="10"
+                     class="form-control bg-dark border-secondary text-light">
+            </div>
+          </div>
+          <div class="alert alert-secondary border-secondary bg-dark mt-3 small">
+            Se impostato, il video viene mostrato automaticamente dopo quel round prima che inizi il successivo.
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-warning">Aggiungi</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <!-- Alliance Modal -->
 <div class="modal fade" id="allianceModal" tabindex="-1">
   <div class="modal-dialog">
@@ -441,6 +556,34 @@ socket.on('round_end', function(data) {
   setTimeout(() => location.reload(), 1500);
 });
 
+socket.on('round_start', function(data) {
+  setTimeout(() => location.reload(), 800);
+});
+
+socket.on('round_countdown', function(data) {
+  const section = document.getElementById('countdownSection');
+  const num     = document.getElementById('adminCountdown');
+  if (section) section.classList.remove('d-none');
+  let secs = data.seconds;
+  if (num) num.textContent = secs;
+  const ct = setInterval(() => {
+    secs--;
+    if (num) num.textContent = Math.max(0, secs);
+    if (secs <= 0) {
+      clearInterval(ct);
+      if (section) section.classList.add('d-none');
+    }
+  }, 1000);
+});
+
+socket.on('game_paused', function() {
+  location.reload();
+});
+
+socket.on('play_video', function(data) {
+  showVideoToast(data.title);
+});
+
 socket.on('game_state', function(data) {
   document.getElementById('stateLabel').textContent = data.state.toUpperCase();
   data.teams.forEach(t => {
@@ -456,8 +599,16 @@ socket.on('game_state', function(data) {
 });
 
 socket.on('player_answered', function(data) {
-  // Refresh answers table
   if (document.getElementById('answersBody')) pollAnswers();
 });
+
+function showVideoToast(title) {
+  const t = document.createElement('div');
+  t.className = 'position-fixed bottom-0 end-0 m-3 alert alert-warning border-warning';
+  t.style.zIndex = '9999';
+  t.innerHTML = `<i class="bi bi-youtube me-2"></i><strong>Video in corso:</strong> ${title}`;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 5000);
+}
 </script>
 {% endblock %}

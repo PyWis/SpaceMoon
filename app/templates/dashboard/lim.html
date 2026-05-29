@@ -221,6 +221,31 @@
 
 </div>
 
+<!-- Pause banner -->
+<div id="pausedBanner" class="d-none position-fixed top-0 start-0 w-100 text-center py-2"
+     style="z-index:9050;background:rgba(220,53,69,.85)">
+  <strong class="text-white fs-5"><i class="bi bi-pause-fill me-2"></i>GIOCO IN PAUSA</strong>
+</div>
+
+<!-- Countdown overlay -->
+<div id="limCountdown" class="d-none position-fixed top-50 start-50 translate-middle text-center"
+     style="z-index:9060">
+  <div class="text-info fs-5 mb-2">Prossimo round tra...</div>
+  <div class="display-1 fw-bold text-warning" id="limCountdownNum">--</div>
+</div>
+
+<!-- Video overlay (full-screen) -->
+<div id="limVideoOverlay" class="d-none position-fixed top-0 start-0 w-100 h-100"
+     style="z-index:9100;background:#000">
+  <div class="d-flex flex-column align-items-center justify-content-center h-100">
+    <h3 class="text-warning mb-4" id="limVideoTitle">Video</h3>
+    <div class="ratio ratio-16x9" style="max-width:90vw;width:100%">
+      <iframe id="limVideoFrame" src="" allowfullscreen
+              allow="autoplay; encrypted-media" frameborder="0"></iframe>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
@@ -255,10 +280,13 @@ function updateTimer() {
 }
 
 socket.on('round_start', function(data) {
-  roundEndTime = data.end_time;
-  roundDur = data.duration;
+  roundEndTime = Date.now() / 1000 + data.duration;
+  roundDur     = data.duration;
   document.getElementById('roundNum').textContent = data.round;
   document.getElementById('timerWidget')?.classList.remove('d-none');
+  document.getElementById('limVideoOverlay')?.classList.add('d-none');
+  document.getElementById('limVideoFrame').src = '';
+  document.getElementById('limCountdown')?.classList.add('d-none');
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(updateTimer, 500);
   updateTimer();
@@ -268,10 +296,41 @@ socket.on('round_end', function(data) {
   if (timerInterval) clearInterval(timerInterval);
   document.getElementById('timerWidget')?.classList.add('d-none');
   roundEndTime = 0;
-
   data.team_results.forEach(tr => {
-    animatePoints(tr.team_id, tr.total_pts);
+    const el = document.getElementById(`limPts_${tr.team_id}`);
+    if (el) animateEl(el, tr.total_pts);
   });
+});
+
+socket.on('round_countdown', function(data) {
+  const el = document.getElementById('limCountdown');
+  if (!el) return;
+  el.classList.remove('d-none');
+  const num = document.getElementById('limCountdownNum');
+  let secs = data.seconds;
+  if (num) num.textContent = secs;
+  const ct = setInterval(() => {
+    secs--;
+    if (num) num.textContent = Math.max(0, secs);
+    if (secs <= 0) { clearInterval(ct); el.classList.add('d-none'); }
+  }, 1000);
+});
+
+socket.on('play_video', function(data) {
+  if (!data.embed_url) return;
+  document.getElementById('limCountdown')?.classList.add('d-none');
+  document.getElementById('limVideoTitle').textContent = data.title;
+  document.getElementById('limVideoFrame').src = data.embed_url;
+  document.getElementById('limVideoOverlay')?.classList.remove('d-none');
+  setTimeout(() => {
+    document.getElementById('limVideoOverlay')?.classList.add('d-none');
+    document.getElementById('limVideoFrame').src = '';
+  }, (data.duration_seconds + 3) * 1000);
+});
+
+socket.on('game_paused', function(data) {
+  const banner = document.getElementById('pausedBanner');
+  if (banner) banner.classList.toggle('d-none', !data.paused);
 });
 
 socket.on('game_state', function(data) {
